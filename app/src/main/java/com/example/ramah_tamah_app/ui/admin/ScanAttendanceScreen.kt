@@ -73,15 +73,28 @@ fun ScanAttendanceScreen(
     var nik by remember { mutableStateOf("") }
     var successMessage by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var hasCameraPermission by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
 
-    // Camera permission launcher
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        hasCameraPermission = isGranted
+    fun submitAttendance(rawNik: String) {
+        val cleanNik = rawNik.trim()
+        if (cleanNik.isEmpty()) {
+            errorMessage = "NIK tidak boleh kosong"
+            successMessage = null
+            return
+        }
+        viewModel.scanAttendance(
+            nik = cleanNik,
+            onSuccess = { msg ->
+                successMessage = msg
+                errorMessage = null
+                nik = ""
+            },
+            onError = { msg ->
+                errorMessage = msg
+                successMessage = null
+            }
+        )
     }
 
     // QR Scanner launcher
@@ -89,35 +102,38 @@ fun ScanAttendanceScreen(
         contract = ScanContract()
     ) { result: ScanIntentResult ->
         if (result.contents != null) {
-            val scannedNik = result.contents.trim()
-            nik = scannedNik
-            viewModel.scanAttendance(
-                nik = scannedNik,
-                onSuccess = { msg ->
-                    successMessage = msg
-                    errorMessage = null
-                    nik = ""
-                },
-                onError = { msg ->
-                    errorMessage = msg
-                    successMessage = null
-                }
-            )
+            nik = result.contents.trim()
+            submitAttendance(result.contents)
+        }
+    }
+
+    fun launchScanner() {
+        val options = ScanOptions().apply {
+            setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+            setPrompt("Arahkan kamera ke QR Code peserta")
+            setBeepEnabled(true)
+            setOrientationLocked(false)
+            setBarcodeImageEnabled(false)
+        }
+        scanLauncher.launch(options)
+    }
+
+    // Camera permission launcher
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            launchScanner()
+        } else {
+            errorMessage = "Izin kamera ditolak. Gunakan input manual NIK."
+            successMessage = null
         }
     }
 
     fun startQrScanner() {
         val permission = Manifest.permission.CAMERA
         if (ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED) {
-            hasCameraPermission = true
-            val options = ScanOptions().apply {
-                setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                setPrompt("Arahkan kamera ke QR Code peserta")
-                setBeepEnabled(true)
-                setOrientationLocked(false)
-                setBarcodeImageEnabled(false)
-            }
-            scanLauncher.launch(options)
+            launchScanner()
         } else {
             permissionLauncher.launch(permission)
         }
@@ -188,6 +204,7 @@ fun ScanAttendanceScreen(
                     // Scan QR Button
                     Button(
                         onClick = { startQrScanner() },
+                        enabled = !viewModel.isLoading,
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = Primary
@@ -238,18 +255,7 @@ fun ScanAttendanceScreen(
                             onDone = {
                                 focusManager.clearFocus()
                                 if (nik.isNotBlank()) {
-                                    viewModel.scanAttendance(
-                                        nik = nik,
-                                        onSuccess = { msg ->
-                                            successMessage = msg
-                                            errorMessage = null
-                                            nik = ""
-                                        },
-                                        onError = { msg ->
-                                            errorMessage = msg
-                                            successMessage = null
-                                        }
-                                    )
+                                    submitAttendance(nik)
                                 }
                             }
                         ),
@@ -307,22 +313,7 @@ fun ScanAttendanceScreen(
                     OutlinedButton(
                         onClick = {
                             focusManager.clearFocus()
-                            if (nik.isNotBlank()) {
-                                viewModel.scanAttendance(
-                                    nik = nik,
-                                    onSuccess = { msg ->
-                                        successMessage = msg
-                                        errorMessage = null
-                                        nik = ""
-                                    },
-                                    onError = { msg ->
-                                        errorMessage = msg
-                                        successMessage = null
-                                    }
-                                )
-                            } else {
-                                errorMessage = "NIK tidak boleh kosong"
-                            }
+                            submitAttendance(nik)
                         },
                         enabled = !viewModel.isLoading,
                         shape = RoundedCornerShape(12.dp),
